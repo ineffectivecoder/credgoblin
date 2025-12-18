@@ -53,13 +53,18 @@ func (h *Handler) OnHashCaptured(callback func(string)) {
 func (h *Handler) Handle(ctx context.Context) error {
 	defer h.conn.Close()
 
-	for {
+	// Start goroutine to close connection when context is cancelled
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		default:
+			h.conn.Close() // Force close to unblock any pending reads
+		case <-done:
 		}
+	}()
 
+	for {
 		netbiosHeader := make([]byte, 4)
 		_, err := io.ReadFull(h.conn, netbiosHeader)
 		if err != nil {
@@ -350,6 +355,7 @@ func (h *Handler) processSMB2Packet(data []byte) ([]byte, string, error) {
 			h.authParser,
 			h.hashFormatter,
 			h.sessionState,
+			h.logger,
 		)
 		return response, hash, err
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ineffectivecoder/credgoblin/pkg/ntlm"
+	"github.com/ineffectivecoder/credgoblin/pkg/output"
 )
 
 // SMB2 Session Setup Response Status
@@ -22,7 +23,7 @@ type SessionState struct {
 }
 
 // buildSessionSetupResponse builds an SMB2 SESSION_SETUP response
-func buildSessionSetupResponse(req *SMB2Header, status uint32, sessionID uint64, securityBlob []byte) []byte {
+func buildSessionSetupResponse(req *SMB2Header, status uint32, sessionID uint64, securityBlob []byte, logger *output.Logger) []byte {
 	headerSize := 64
 	bodySize := 9 // StructureSize(2) + SessionFlags(2) + SecurityBufferOffset(2) + SecurityBufferLength(2) + Reserved(1)
 	totalSize := headerSize + bodySize + len(securityBlob)
@@ -72,9 +73,9 @@ func buildSessionSetupResponse(req *SMB2Header, status uint32, sessionID uint64,
 	copy(response[offset:], securityBlob)
 
 	// Debug output
-	fmt.Printf("[DBG] Sending SESSION_SETUP response: status=0x%08x sessionID=0x%016x blobLen=%d\n", status, sessionID, len(securityBlob))
-
-	return response
+	if logger != nil {
+		logger.Debug(fmt.Sprintf("Sending SESSION_SETUP response: status=0x%08x sessionID=0x%016x blobLen=%d", status, sessionID, len(securityBlob)))
+	}
 
 	return response
 }
@@ -197,6 +198,7 @@ func handleSessionSetup(
 	authParser *ntlm.AuthMessageParser,
 	hashFormatter *ntlm.HashcatFormatter,
 	state *SessionState,
+	logger *output.Logger,
 ) ([]byte, string, error) {
 	if len(data) < 64+9 {
 		return nil, "", fmt.Errorf("session setup request too short")
@@ -216,18 +218,20 @@ func handleSessionSetup(
 	securityBufferLength := binary.LittleEndian.Uint16(data[offset : offset+2])
 
 	// Debug: print first 200 bytes of the session setup request
-	debugLen := len(data)
-	if debugLen > 200 {
-		debugLen = 200
-	}
-	var hexDump string
-	for i := 0; i < debugLen; i++ {
-		if i%16 == 0 {
-			hexDump += fmt.Sprintf("\n%04x: ", i)
+	if logger != nil && logger.IsVerbose() {
+		debugLen := len(data)
+		if debugLen > 200 {
+			debugLen = 200
 		}
-		hexDump += fmt.Sprintf("%02x ", data[i])
+		var hexDump string
+		for i := 0; i < debugLen; i++ {
+			if i%16 == 0 {
+				hexDump += fmt.Sprintf("\n%04x: ", i)
+			}
+			hexDump += fmt.Sprintf("%02x ", data[i])
+		}
+		logger.Debug(fmt.Sprintf("SESSION_SETUP packet (secBufOff=%d secBufLen=%d):%s", securityBufferOffset, securityBufferLength, hexDump))
 	}
-	fmt.Printf("SESSION_SETUP packet (secBufOff=%d secBufLen=%d):%s\n", securityBufferOffset, securityBufferLength, hexDump)
 
 	if int(securityBufferOffset)+int(securityBufferLength) > len(data) {
 		return nil, "", fmt.Errorf("security buffer out of bounds")
@@ -235,7 +239,7 @@ func handleSessionSetup(
 
 	if securityBufferLength == 0 {
 		// Client is trying anonymous/guest login - send LOGON_FAILURE and close connection
-		errResponse := buildSessionSetupResponse(&SMB2Header{MessageID: binary.LittleEndian.Uint64(data[56:64])}, 0xC000006D, 0, nil) // STATUS_LOGON_FAILURE
+		errResponse := buildSessionSetupResponse(&SMB2Header{MessageID: binary.LittleEndian.Uint64(data[56:64])}, 0xC000006D, 0, nil, logger) // STATUS_LOGON_FAILURE
 		return errResponse, "", fmt.Errorf("empty security buffer - client attempting anonymous auth, connection will close")
 	}
 
@@ -269,26 +273,28 @@ func handleSessionSetup(
 		spnegoBlob := wrapNTLMInSPNEGO(challenge.Bytes(), true)
 
 		// Debug: print first 100 bytes of SPNEGO blob
-		debugLen := len(spnegoBlob)
-		if debugLen > 100 {
-			debugLen = 100
-		}
-		var hexDump string
-		for i := 0; i < debugLen; i++ {
-			if i%16 == 0 && i > 0 {
-				hexDump += "\n                "
+		if logger != nil && logger.IsVerbose() {
+			debugLen := len(spnegoBlob)
+			if debugLen > 100 {
+				debugLen = 100
 			}
-			hexDump += fmt.Sprintf("%02x ", spnegoBlob[i])
+			var hexDump string
+			for i := 0; i < debugLen; i++ {
+				if i%16 == 0 && i > 0 {
+					hexDump += "\n                "
+				}
+				hexDump += fmt.Sprintf("%02x ", spnegoBlob[i])
+			}
+			logger.Debug(fmt.Sprintf("SPNEGO blob: %s", hexDump))
 		}
-		fmt.Printf("[DBG] SPNEGO blob: %s\n", hexDump)
 
-		response := buildSessionSetupResponse(req, STATUS_MORE_PROCESSING_REQUIRED, 0x1000000000001, spnegoBlob)
+		response := buildSessionSetupResponse(req, STATUS_MORE_PROCESSING_REQUIRED, 0x1000000000001, spnegoBlob, logger)
 		return response, "", nil
 
 	case ntlm.NtLmAuthenticate:
 		auth, err := authParser.Parse(ntlmMsg)
 		if err != nil {
-			response := buildSessionSetupResponse(req, STATUS_LOGON_FAILURE, req.SessionID, nil)
+			response := buildSessionSetupResponse(req, STATUS_LOGON_FAILURE, req.SessionID, nil, logger)
 			return response, "", fmt.Errorf("failed to parse auth message: %w", err)
 		}
 
@@ -297,7 +303,7 @@ func handleSessionSetup(
 			hash = hashFormatter.FormatHashcatFromChallenge(state.Challenge, auth)
 		}
 
-		response := buildSessionSetupResponse(req, STATUS_ACCESS_DENIED, req.SessionID, nil)
+		response := buildSessionSetupResponse(req, STATUS_ACCESS_DENIED, req.SessionID, nil, logger)
 		return response, hash, nil
 
 	default:
