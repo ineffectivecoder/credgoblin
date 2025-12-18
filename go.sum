@@ -1,0 +1,4 @@
+github.com/mjwhitta/cli v1.12.5 h1:ybz3DY+KeRmhAHyFRapWxKYY12ehALnjjbC1oj8g8Mg=
+github.com/mjwhitta/cli v1.12.5/go.mod h1:497aphw0WscFzb+b0S5R5U8r7yEo6aYQSe9p2WVfk0A=
+github.com/mjwhitta/errors v1.0.3 h1:0+L8/7ypucj6ufBNt8Rm2qPvJ9qwmS+TtgOJYCYb6Sw=
+github.com/mjwhitta/errors v1.0.3/go.mod h1:VxHM8bLMPVqkvHiYQq4Nq4sjNqPjUtKLhSF2I0wve5U=
