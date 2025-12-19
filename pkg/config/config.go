@@ -11,12 +11,14 @@ type CaptureConfig struct {
 
 // RelayConfig holds configuration for the relay subcommand
 type RelayConfig struct {
-	ListenAddr  string
-	TargetURL   string
-	TargetUser  string
-	OutputPath  string
-	PFXPassword string
-	Verbose     bool
+	ListenAddr   string
+	TargetURL    string
+	TargetUser   string
+	OutputPath   string
+	PFXPassword  string
+	Verbose      bool
+	RelayMode    string // "ldap" or "adcs"
+	TemplateName string // Certificate template name for ADCS
 }
 
 // DefaultCaptureConfig returns default capture configuration
@@ -35,5 +37,6 @@ func DefaultRelayConfig() *RelayConfig {
 	return &RelayConfig{
 		ListenAddr: "0.0.0.0",
 		Verbose:    false,
+		RelayMode:  "ldap",
 	}
 }

@@ -206,8 +206,8 @@ func (h *Handler) buildSMB2NegotiateFromSMB1(smb1Data []byte, dialectIndex uint1
 	binary.LittleEndian.PutUint16(response[offset:offset+2], 65)
 	offset += 2
 
-	// Security Mode - require signing to force authentication
-	binary.LittleEndian.PutUint16(response[offset:offset+2], SMB2_NEGOTIATE_SIGNING_ENABLED|SMB2_NEGOTIATE_SIGNING_REQUIRED)
+	// Security Mode - set to 0 (no signing) to allow NTLM relay attacks
+	binary.LittleEndian.PutUint16(response[offset:offset+2], 0)
 	offset += 2
 
 	// Dialect Revision (SMB 2.002)

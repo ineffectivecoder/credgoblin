@@ -65,6 +65,20 @@ func runRelay() {
 		"Enable verbose output.",
 	)
 
+	cli.Flag(
+		&cfg.RelayMode,
+		"m", "mode",
+		cfg.RelayMode,
+		"Relay mode: ldap or adcs.",
+	)
+
+	cli.Flag(
+		&cfg.TemplateName,
+		"T", "template",
+		cfg.TemplateName,
+		"Certificate template name for ADCS relay (e.g., User, Machine).",
+	)
+
 	// Parse flags
 	cli.Parse()
 
@@ -75,10 +89,20 @@ func runRelay() {
 		os.Exit(1)
 	}
 
-	if cfg.TargetUser == "" {
-		fmt.Println("Error: --target-user is required")
-		fmt.Println()
-		os.Exit(1)
+	// Mode-specific validation
+	if cfg.RelayMode == "adcs" {
+		if cfg.TemplateName == "" {
+			fmt.Println("Error: --template is required for ADCS relay mode")
+			fmt.Println()
+			os.Exit(1)
+		}
+	} else {
+		// LDAP mode requires target user
+		if cfg.TargetUser == "" {
+			fmt.Println("Error: --target-user is required for LDAP relay mode")
+			fmt.Println()
+			os.Exit(1)
+		}
 	}
 
 	// Create logger
@@ -97,18 +121,25 @@ func runRelay() {
 		cfg.OutputPath = "certificate.pfx"
 	}
 
-	logger.Info(fmt.Sprintf("Target LDAP: %s", cfg.TargetURL))
-	logger.Info(fmt.Sprintf("Target User: %s", cfg.TargetUser))
+	logger.Info(fmt.Sprintf("Relay Mode: %s", cfg.RelayMode))
+	logger.Info(fmt.Sprintf("Target: %s", cfg.TargetURL))
+	if cfg.RelayMode == "adcs" {
+		logger.Info(fmt.Sprintf("Certificate Template: %s", cfg.TemplateName))
+	} else {
+		logger.Info(fmt.Sprintf("Target User: %s", cfg.TargetUser))
+	}
 	logger.Info(fmt.Sprintf("Output PFX: %s", cfg.OutputPath))
 
 	// Create relay config
 	relayConfig := &relay.Config{
-		ListenAddr:  cfg.ListenAddr,
-		TargetURL:   cfg.TargetURL,
-		TargetUser:  cfg.TargetUser,
-		OutputPath:  cfg.OutputPath,
-		PFXPassword: cfg.PFXPassword,
-		Verbose:     cfg.Verbose,
+		ListenAddr:   cfg.ListenAddr,
+		TargetURL:    cfg.TargetURL,
+		TargetUser:   cfg.TargetUser,
+		OutputPath:   cfg.OutputPath,
+		PFXPassword:  cfg.PFXPassword,
+		Verbose:      cfg.Verbose,
+		RelayMode:    cfg.RelayMode,
+		TemplateName: cfg.TemplateName,
 	}
 
 	// Create relay server

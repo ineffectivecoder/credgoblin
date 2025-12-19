@@ -189,3 +189,51 @@ func encodeDERLength(length int) []byte {
 
 	return buf.Bytes()
 }
+
+// BuildSMB1NegotiateResponseForSMB2 builds an SMB1 NEGOTIATE response that forces SMB2
+func BuildSMB1NegotiateResponseForSMB2() []byte {
+	// Build an SMB1 response with dialect index 0xFFFF (no common dialect)
+	// This tells the client we don't support SMB1 and forces it to retry with SMB2
+	response := make([]byte, 35)
+
+	// SMB1 Header
+	response[0] = 0xFF
+	copy(response[1:4], []byte{'S', 'M', 'B'})
+	response[4] = 0x72 // SMB_COM_NEGOTIATE
+	// Status: 0 (success)
+	response[9] = 0x98  // Flags
+	response[10] = 0x07 // Flags2 (low)
+	response[11] = 0xc8 // Flags2 (high) - supports long names, unicode, NT status
+
+	// WordCount = 1
+	response[32] = 0x01
+	// DialectIndex = 0xFFFF (no dialect selected - forces client to try SMB2)
+	binary.LittleEndian.PutUint16(response[33:35], 0xFFFF)
+
+	return response
+}
+
+// BuildSMB1NegotiateResponseSelectingSMB2 builds an SMB1 NEGOTIATE response selecting SMB2 dialect
+func BuildSMB1NegotiateResponseSelectingSMB2(dialectIndex int) []byte {
+	// Build an SMB1 response that selects the SMB2 dialect
+	// This causes the client to switch to SMB2 on the same connection
+	response := make([]byte, 37)
+
+	// SMB1 Header (32 bytes)
+	response[0] = 0xFF
+	copy(response[1:4], []byte{'S', 'M', 'B'})
+	response[4] = 0x72 // SMB_COM_NEGOTIATE
+	// Status: 0 (success)
+	response[9] = 0x98  // Flags
+	response[10] = 0x07 // Flags2 (low)
+	response[11] = 0xc8 // Flags2 (high) - supports long names, unicode, NT status
+
+	// WordCount = 1 (offset 32)
+	response[32] = 0x01
+	// DialectIndex - index of selected dialect (offset 33, 2 bytes)
+	binary.LittleEndian.PutUint16(response[33:35], uint16(dialectIndex))
+	// ByteCount = 0 (offset 35, 2 bytes)
+	binary.LittleEndian.PutUint16(response[35:37], 0)
+
+	return response
+}

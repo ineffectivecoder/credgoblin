@@ -117,8 +117,8 @@ func buildNegotiateResponse(req *SMB2Header) []byte {
 	// SMB2 NEGOTIATE Response body
 	binary.LittleEndian.PutUint16(response[offset:offset+2], 65)
 	offset += 2
-	// Security Mode - require signing to force NTLM authentication
-	binary.LittleEndian.PutUint16(response[offset:offset+2], SMB2_NEGOTIATE_SIGNING_ENABLED|SMB2_NEGOTIATE_SIGNING_REQUIRED)
+	// Security Mode - set to 0 (no signing) to allow NTLM relay attacks
+	binary.LittleEndian.PutUint16(response[offset:offset+2], 0)
 	offset += 2
 	binary.LittleEndian.PutUint16(response[offset:offset+2], SMB2_DIALECT_210)
 	offset += 2
