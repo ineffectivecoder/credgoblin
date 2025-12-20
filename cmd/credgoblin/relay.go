@@ -38,6 +38,13 @@ func runRelay() {
 	)
 
 	cli.Flag(
+		&cfg.TargetDomain,
+		"d", "domain",
+		cfg.TargetDomain,
+		"Target domain for certificate UPN (e.g., domain.local). Required when target is an IP address.",
+	)
+
+	cli.Flag(
 		&cfg.TargetUser,
 		"u", "target-user",
 		cfg.TargetUser,
@@ -147,6 +154,7 @@ func runRelay() {
 		ListenAddr:   cfg.ListenAddr,
 		ListenPorts:  cfg.ListenPorts,
 		TargetURL:    cfg.TargetURL,
+		TargetDomain: cfg.TargetDomain,
 		TargetUser:   cfg.TargetUser,
 		OutputPath:   cfg.OutputPath,
 		PFXPassword:  cfg.PFXPassword,

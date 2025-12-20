@@ -26,6 +26,7 @@ type Config struct {
 	ListenAddr   string
 	ListenPorts  string // "80", "445", or "both"
 	TargetURL    string
+	TargetDomain string // Explicit domain for certificate UPN (required when target is IP)
 	TargetUser   string
 	OutputPath   string
 	PFXPassword  string
@@ -57,7 +58,14 @@ func NewServer(config *Config, logger *output.Logger) *Server {
 }
 
 // extractDomainFromURL extracts the domain from an LDAP URL (e.g., ldap://dc.domain.local -> domain.local)
-func extractDomainFromURL(targetURL string) string {
+// If explicitDomain is provided, it will be used instead of extracting from URL.
+// This is necessary when the URL contains an IP address.
+func extractDomainFromURL(targetURL string, explicitDomain string) string {
+	// Use explicit domain if provided
+	if explicitDomain != "" {
+		return explicitDomain
+	}
+
 	// Remove scheme
 	url := targetURL
 	url = strings.TrimPrefix(url, "ldap://")
@@ -245,7 +253,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			conn:         conn,
 			ldapClient:   ldapClient,
 			targetUser:   s.config.TargetUser,
-			targetDomain: extractDomainFromURL(s.config.TargetURL),
+			targetDomain: extractDomainFromURL(s.config.TargetURL, s.config.TargetDomain),
 			outputPath:   s.config.OutputPath,
 			pfxPass:      s.config.PFXPassword,
 			logger:       s.logger,
@@ -307,7 +315,7 @@ func (s *Server) handleHTTPConnection(ctx context.Context, conn net.Conn) {
 			ldapClient:   ldapClient,
 			adcsClient:   nil,
 			targetUser:   s.config.TargetUser,
-			targetDomain: extractDomainFromURL(s.config.TargetURL),
+			targetDomain: extractDomainFromURL(s.config.TargetURL, s.config.TargetDomain),
 			outputPath:   s.config.OutputPath,
 			pfxPass:      s.config.PFXPassword,
 			logger:       s.logger,
@@ -2120,7 +2128,7 @@ func (h *HTTPRelayHandler) handleNTLMType1(type1 []byte) error {
 		if err := h.ldapClient.QueryBaseDNBeforeAuth(); err != nil {
 			h.logger.Debug(fmt.Sprintf("Failed to query base DN before auth: %v", err))
 			// Fallback: construct baseDN from target URL domain
-			if domain := extractDomainFromURL(h.ldapClient.GetTargetURL()); domain != "" {
+			if domain := extractDomainFromURL(h.ldapClient.GetTargetURL(), h.targetDomain); domain != "" {
 				baseDN := domainToBaseDN(domain)
 				h.ldapClient.SetBaseDN(baseDN)
 				h.logger.Info(fmt.Sprintf("Using constructed base DN: %s", baseDN))

