@@ -28,6 +28,12 @@ Credgoblin is a high-performance NTLM credential capture and relay tool written 
 - **Relay** to AD Certificate Services (ADCS) for ESC8 certificate abuse
 - **Export** credentials in formats compatible with Hashcat and PKINITtools
 
+## Experimental
+
+Many hours of development went into building Credgoblin. This tool is still experimental and may contain bugs or incomplete features.
+
+I spent a lot of time fighting with Sonnet 4.5(AI) to get the NTLM relay and Shadow Credentials functionality working correctly.
+
 ## Features
 
 | Category | Feature | Description |
