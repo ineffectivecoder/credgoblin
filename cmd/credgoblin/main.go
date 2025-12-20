@@ -40,12 +40,12 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("credgremlin v" + version)
+	fmt.Println("credgoblin v" + version)
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  credgremlin capture [options]  # Capture NTLM hashes")
-	fmt.Println("  credgremlin relay [options]    # Relay NTLM to LDAP")
-	fmt.Println("  credgremlin version            # Show version")
+	fmt.Println("  credgoblin capture [options]  # Capture NTLM hashes")
+	fmt.Println("  credgoblin relay [options]    # Relay NTLM to LDAP")
+	fmt.Println("  credgoblin version            # Show version")
 	fmt.Println()
-	fmt.Println("Run 'credgremlin capture --help' or 'credgremlin relay --help' for subcommand options")
+	fmt.Println("Run 'credgoblin capture --help' or 'credgoblin	 relay --help' for subcommand options")
 }
