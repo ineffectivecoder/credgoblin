@@ -345,9 +345,3 @@ MIT License - See [LICENSE](LICENSE) for details.
 - Obtain proper written authorization before using this tool
 - Ensure compliance with all applicable laws and regulations
 - The authors are not responsible for misuse or damage caused by this tool
-
----
-
-<p align="center">
-  <em>Built for security professionals, by security professionals.</em>
-</p>
