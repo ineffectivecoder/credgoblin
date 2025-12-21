@@ -43,10 +43,11 @@ I spent a lot of time fighting with Sonnet 4.5(AI) to get the NTLM relay and Sha
 | **Relay** | LDAP/LDAPS | Shadow Credentials via `msDS-KeyCredentialLink` modification |
 | **Relay** | ADCS (ESC8) | Certificate enrollment via web interface (`/certsrv/`) |
 | **Relay** | Cross-Protocol | SMB→LDAP, SMB→HTTP, HTTP→LDAP relay chains |
-| **Protocol** | SMB Support | SMB1→SMB2 negotiation upgrade and native SMB2 |
+| **Protocol** | SMB Support | SMB1→SMB2 negotiation upgrade, native SMB2, and HTTP/HTTPS |
 | **Protocol** | NTLM Support | Full Type 1/2/3 message handling with SPNEGO wrapping |
 | **Protocol** | SICILY | Microsoft's LDAP NTLM authentication mechanism |
 | **Attack** | CVE-2019-1040 | Drop the MIC implementation for cross-protocol relay |
+| **Attack** | Flag Stripping | Remove Sign/Seal/KeyExchange flags to bypass LDAP signing |
 
 ## Installation
 
@@ -60,7 +61,7 @@ go build -o credgoblin ./cmd/credgoblin
 
 ### Requirements
 
-- **Go**: 1.23 or higher
+- **Go**: 1.23+ (toolchain 1.24.1 recommended)
 - **Privileges**: Root/Administrator (required for binding to ports 80, 443, 445)
 - **Platform**: Linux, macOS, Windows
 
@@ -92,11 +93,13 @@ sudo ./credgoblin capture -i 0.0.0.0 -o captured_hashes.txt -v
 | Flag | Long | Default | Description |
 |------|------|---------|-------------|
 | `-i` | `--interface` | `0.0.0.0` | Listen address |
-| `-p` | `--ports` | `both` | Ports: `80`, `443`, `445`, `both`, or comma-separated |
+| `-p` | `--ports` | `both` | Ports: `80`, `443`, `445`, `both`, or comma-separated (e.g., `80,443`) |
 | `-o` | `--output` | `hashes.txt` | Output file for captured hashes |
 | `-s` | `--server` | `CREDGOBLIN` | Server name to advertise in NTLM challenge |
 | `-d` | `--domain` | `WORKGROUP` | Domain name to advertise in NTLM challenge |
 | `-v` | `--verbose` | `false` | Enable verbose output |
+
+> **Note**: HTTPS (443) with auto-generated TLS certificate is required for Windows WebClient (WebDAV) coercion.
 
 ### LDAP Relay Mode (Shadow Credentials)
 
@@ -110,6 +113,11 @@ sudo ./credgoblin relay -t ldap://dc.domain.local \
 # Relay to LDAPS (TLS encrypted)
 sudo ./credgoblin relay -t ldaps://dc.domain.local \
     -u 'CN=TargetComputer,CN=Computers,DC=domain,DC=local'
+
+# Relay using IP address (requires explicit domain for certificate UPN)
+sudo ./credgoblin relay -t ldap://10.10.10.10 \
+    -u 'CN=DC01,CN=Computers,DC=domain,DC=local' \
+    -d domain.local
 
 # Custom PFX output with password
 sudo ./credgoblin relay -t ldap://dc.domain.local \
@@ -150,6 +158,7 @@ sudo ./credgoblin relay -m adcs \
 | `-t` | `--target` | *required* | Target URL (`ldap://`, `ldaps://`, `http://`, `https://`) |
 | `-m` | `--mode` | `ldap` | Relay mode: `ldap` or `adcs` |
 | `-u` | `--target-user` | *required for LDAP* | Target user/computer Distinguished Name |
+| `-d` | `--domain` | *auto* | Target domain for certificate UPN (required when target is IP) |
 | `-T` | `--template` | *required for ADCS* | Certificate template name (e.g., `User`, `Machine`) |
 | `-o` | `--output` | `<username>.pfx` | Output PFX path |
 | `-P` | `--pfx-pass` | *random* | PFX password |
@@ -305,31 +314,52 @@ administrator::CORP:1122334455667788:A1B2C3D4E5F6...:0101000000000000...
 ```
 credgoblin/
 ├── cmd/credgoblin/          # CLI entry points
-│   ├── main.go              # Command routing
+│   ├── main.go              # Command routing (v0.1.0)
 │   ├── capture.go           # Hash capture subcommand
 │   └── relay.go             # Relay attack subcommand
 ├── pkg/
 │   ├── config/              # Configuration structures
+│   │   └── config.go        # Capture and relay config defaults
 │   ├── ntlm/                # NTLM message parsing and generation
+│   │   ├── auth.go          # Type 3 (Authenticate) parsing
+│   │   ├── challenge.go     # Type 2 (Challenge) generation
+│   │   ├── hash.go          # Hashcat formatter
+│   │   └── ntlm.go          # Constants and utilities
 │   ├── output/              # Logging and hash file writing
+│   │   ├── hashwriter.go    # Hash output to file
+│   │   └── logger.go        # Colored console logging
 │   ├── relay/               # Relay attack implementations
-│   │   ├── relay.go         # SMB relay handler
-│   │   ├── ldap.go          # LDAP/SICILY client
-│   │   └── adcs.go          # ADCS HTTP client
-│   ├── shadowcreds/         # KeyCredential generation and PFX export
-│   └── smb/                 # SMB1/SMB2 protocol handling
-└── assets/                  # Logo and assets
+│   │   ├── relay.go         # SMB/HTTP relay handlers
+│   │   ├── ldap.go          # LDAP/SICILY client with signing bypass
+│   │   ├── ldap_signing.go  # LDAP signing utilities
+│   │   └── adcs.go          # ADCS HTTP/HTTPS client
+│   ├── shadowcreds/         # Shadow Credentials attack
+│   │   ├── keycredential.go # KeyCredential blob generation
+│   │   └── export.go        # PFX certificate export
+│   └── smb/                 # SMB protocol handling
+│       ├── server.go        # Multi-protocol listener (SMB/HTTP/HTTPS)
+│       ├── handler.go       # SMB connection handler
+│       ├── http_handler.go  # HTTP/HTTPS NTLM handler
+│       ├── negotiate.go     # SMB2 negotiation
+│       ├── session.go       # Session setup handling
+│       ├── smb1*.go         # SMB1 compatibility layer
+│       └── helpers.go       # SPNEGO wrapping utilities
+├── assets/                  # Logo and assets
+├── go.mod                   # Go 1.23+ module
+└── go.sum                   # Dependency checksums
 ```
 
 ## Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| [go-ldap/ldap](https://github.com/go-ldap/ldap) | LDAP protocol support |
-| [go-asn1-ber](https://github.com/go-asn1-ber/asn1-ber) | ASN.1 BER encoding for LDAP/SPNEGO |
-| [google/uuid](https://github.com/google/uuid) | UUID generation for KeyCredential |
-| [go-pkcs12](https://pkg.go.dev/software.sslmate.com/src/go-pkcs12) | PFX/PKCS#12 certificate export |
-| [mjwhitta/cli](https://github.com/mjwhitta/cli) | Command-line argument parsing |
+| Package | Version | Purpose |
+|---------|---------|---------|
+| [go-ldap/ldap](https://github.com/go-ldap/ldap) | v3.4.12 | LDAP protocol support |
+| [go-asn1-ber](https://github.com/go-asn1-ber/asn1-ber) | v1.5.8 | ASN.1 BER encoding for LDAP/SPNEGO |
+| [google/uuid](https://github.com/google/uuid) | v1.6.0 | UUID generation for KeyCredential |
+| [go-pkcs12](https://pkg.go.dev/software.sslmate.com/src/go-pkcs12) | v0.6.0 | PFX/PKCS#12 certificate export |
+| [mjwhitta/cli](https://github.com/mjwhitta/cli) | v1.12.5 | Command-line argument parsing |
+| [Azure/go-ntlmssp](https://github.com/Azure/go-ntlmssp) | - | NTLM protocol reference |
+| [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) | v0.36.0 | Cryptographic primitives |
 
 ## Credits
 
