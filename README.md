@@ -273,6 +273,7 @@ The `msDS-KeyCredentialLink` attribute is modified to contain a `KeyCredential` 
 - **Timestamps** (Types 0x08, 0x09): Last logon and creation times in FILETIME format
 
 Generated PFX certificates include:
+
 - Self-signed X.509 certificate
 - UPN (User Principal Name) SAN extension for PKINIT compatibility
 - 40-year validity period
