@@ -313,7 +313,7 @@ func (s *Server) handleHTTPConnection(conn net.Conn) {
 
 	handler := NewHTTPHandler(conn, s.config, s.logger, s.challengeGen, s.authParser, s.hashFormatter)
 
-	handler.OnHashCaptured(func(hash string) {
+	handler.OnHashCaptured(func(hash string, requestPath string) {
 		if s.hashWriter != nil {
 			if err := s.hashWriter.WriteHash(hash); err != nil {
 				s.logger.Error(fmt.Sprintf("Failed to write hash: %v", err))
@@ -324,7 +324,7 @@ func (s *Server) handleHTTPConnection(conn net.Conn) {
 			s.onHashCaptured(hash)
 		}
 
-		s.logger.Success(fmt.Sprintf("Hash captured from %s (HTTP:80): %s", remoteAddr, hash))
+		s.logger.Success(fmt.Sprintf("Hash captured from %s (HTTP:80) path=%s: %s", remoteAddr, requestPath, hash))
 	})
 
 	if err := handler.Handle(s.ctx); err != nil {
@@ -342,7 +342,7 @@ func (s *Server) handleHTTPSConnection(conn net.Conn) {
 
 	handler := NewHTTPHandler(conn, s.config, s.logger, s.challengeGen, s.authParser, s.hashFormatter)
 
-	handler.OnHashCaptured(func(hash string) {
+	handler.OnHashCaptured(func(hash string, requestPath string) {
 		if s.hashWriter != nil {
 			if err := s.hashWriter.WriteHash(hash); err != nil {
 				s.logger.Error(fmt.Sprintf("Failed to write hash: %v", err))
@@ -353,7 +353,7 @@ func (s *Server) handleHTTPSConnection(conn net.Conn) {
 			s.onHashCaptured(hash)
 		}
 
-		s.logger.Success(fmt.Sprintf("Hash captured from %s (HTTPS:443): %s", remoteAddr, hash))
+		s.logger.Success(fmt.Sprintf("Hash captured from %s (HTTPS:443) path=%s: %s", remoteAddr, requestPath, hash))
 	})
 
 	if err := handler.Handle(s.ctx); err != nil {

