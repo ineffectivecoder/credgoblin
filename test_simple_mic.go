@@ -1,0 +1,34 @@
+package credgoblin
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}	fmt.Printf("Result length: %d (same as input: %v)\n", len(result), len(result) == 200)	result := simpleMICRemoval(type3)	type3 := make([]byte, 200)	// Test with dummy datafunc main() {}	return modified	fmt.Println("Zeroed MIC at offset 72-87")		}		modified[i] = 0	for i := 72; i < 88; i++ {	// Don't remove anything, don't adjust offsets	// Just zero out the MIC (16 bytes at offset 72)		copy(modified, type3)	modified := make([]byte, len(type3))	// Make a copy		}		return type3	if len(type3) < 88 {func simpleMICRemoval(type3 []byte) []byte {import "fmt"package main// This is simpler and matches what some tools do// Test: Just zero the MIC instead of removing fields

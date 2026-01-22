@@ -1,0 +1,31 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+hashes.txt
+*.pfx
+
+# Go workspace file
+go.work
+
+# IDE
+.vscode/
+.idea/
+
+# Python (for reference repos)
+Responder/
+impacket/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Logs
+logs/
+*.log

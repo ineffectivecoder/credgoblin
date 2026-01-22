@@ -127,16 +127,186 @@ func UnwrapSPNEGO(data []byte) ([]byte, error) {
 		return data, nil
 	}
 
-	idx := bytes.Index(data, ntlmSig)
-	if idx != -1 {
-		return data[idx:], nil
+	// Parse SPNEGO NegTokenResp (0xa1) - used for Type 3 (AUTH) messages
+	if data[0] == 0xa1 {
+		return extractResponseTokenFromNegTokenResp(data)
 	}
 
-	if data[0] == 0x60 || data[0] == 0xa0 || data[0] == 0xa1 {
-		return nil, fmt.Errorf("SPNEGO contains non-NTLM mechanism")
+	// Parse SPNEGO NegTokenInit (0x60) - used for Type 1 (NEGOTIATE) messages
+	if data[0] == 0x60 {
+		return extractMechTokenFromNegTokenInit(data)
+	}
+
+	// Fallback: try to find NTLMSSP signature (legacy behavior)
+	idx := bytes.Index(data, ntlmSig)
+	if idx != -1 {
+		// Calculate actual NTLM message length from header
+		ntlmData := data[idx:]
+		actualLen := calculateNTLMMessageLength(ntlmData)
+		if actualLen > 0 && actualLen <= len(ntlmData) {
+			return ntlmData[:actualLen], nil
+		}
+		return ntlmData, nil
 	}
 
 	return nil, fmt.Errorf("NTLM message not found in SPNEGO blob")
+}
+
+// extractResponseTokenFromNegTokenResp parses NegTokenResp and extracts responseToken [2]
+func extractResponseTokenFromNegTokenResp(data []byte) ([]byte, error) {
+	// NegTokenResp ::= [1] SEQUENCE { responseToken [2] OCTET STRING OPTIONAL, ... }
+	if len(data) < 4 || data[0] != 0xa1 {
+		return nil, fmt.Errorf("not a NegTokenResp")
+	}
+
+	offset := 1
+	_, lenBytes, err := parseASN1LengthWithSize(data[offset:])
+	if err != nil {
+		return nil, err
+	}
+	offset += lenBytes
+
+	// Expect SEQUENCE (0x30)
+	if offset >= len(data) || data[offset] != 0x30 {
+		return nil, fmt.Errorf("expected SEQUENCE in NegTokenResp")
+	}
+	offset++
+	_, lenBytes, err = parseASN1LengthWithSize(data[offset:])
+	if err != nil {
+		return nil, err
+	}
+	offset += lenBytes
+
+	// Look for responseToken [2] (0xa2)
+	for offset < len(data)-2 {
+		tag := data[offset]
+		offset++
+		fieldLen, lenBytes, err := parseASN1LengthWithSize(data[offset:])
+		if err != nil {
+			return nil, err
+		}
+		offset += lenBytes
+
+		if tag == 0xa2 { // responseToken
+			// Should contain OCTET STRING (0x04)
+			if offset >= len(data) || data[offset] != 0x04 {
+				return nil, fmt.Errorf("expected OCTET STRING in responseToken")
+			}
+			offset++
+			ntlmLen, lenBytes, err := parseASN1LengthWithSize(data[offset:])
+			if err != nil {
+				return nil, err
+			}
+			offset += lenBytes
+
+			// Extract exactly ntlmLen bytes
+			if offset+ntlmLen > len(data) {
+				return nil, fmt.Errorf("NTLM message truncated")
+			}
+			return data[offset : offset+ntlmLen], nil
+		}
+
+		// Skip this field
+		offset += fieldLen
+	}
+
+	return nil, fmt.Errorf("responseToken not found in NegTokenResp")
+}
+
+// extractMechTokenFromNegTokenInit parses NegTokenInit and extracts mechToken
+func extractMechTokenFromNegTokenInit(data []byte) ([]byte, error) {
+	// NegTokenInit starts with 0x60 (APPLICATION 0)
+	if len(data) < 4 || data[0] != 0x60 {
+		return nil, fmt.Errorf("not a NegTokenInit")
+	}
+
+	// Find NTLMSSP signature within the structure
+	ntlmSig := []byte("NTLMSSP\x00")
+	idx := bytes.Index(data, ntlmSig)
+	if idx == -1 {
+		return nil, fmt.Errorf("NTLM not found in NegTokenInit")
+	}
+
+	// Calculate actual NTLM message length
+	ntlmData := data[idx:]
+	actualLen := calculateNTLMMessageLength(ntlmData)
+	if actualLen > 0 && actualLen <= len(ntlmData) {
+		return ntlmData[:actualLen], nil
+	}
+	return ntlmData, nil
+}
+
+// parseASN1LengthWithSize parses ASN.1 DER length and returns (length, bytesConsumed, error)
+func parseASN1LengthWithSize(data []byte) (int, int, error) {
+	if len(data) == 0 {
+		return 0, 0, fmt.Errorf("empty data for length")
+	}
+
+	if data[0] < 0x80 {
+		return int(data[0]), 1, nil
+	}
+
+	numBytes := int(data[0] & 0x7f)
+	if numBytes == 0 || numBytes > 4 || len(data) < numBytes+1 {
+		return 0, 0, fmt.Errorf("invalid length encoding")
+	}
+
+	length := 0
+	for i := 1; i <= numBytes; i++ {
+		length = (length << 8) | int(data[i])
+	}
+	return length, numBytes + 1, nil
+}
+
+// calculateNTLMMessageLength calculates the actual length of an NTLM message from its header
+func calculateNTLMMessageLength(ntlm []byte) int {
+	if len(ntlm) < 12 {
+		return len(ntlm)
+	}
+
+	// Check signature
+	if string(ntlm[0:8]) != "NTLMSSP\x00" {
+		return len(ntlm)
+	}
+
+	msgType := binary.LittleEndian.Uint32(ntlm[8:12])
+
+	switch msgType {
+	case 1: // NEGOTIATE
+		return len(ntlm) // Type 1 doesn't have trailing data issues
+	case 2: // CHALLENGE
+		return len(ntlm) // Type 2 is from server, should be correct
+	case 3: // AUTHENTICATE
+		// Type 3 is the complex one - find the max offset + length
+		if len(ntlm) < 64 {
+			return len(ntlm)
+		}
+		maxEnd := 64 // Minimum header size
+
+		// Check NTLMSSP_NEGOTIATE_VERSION flag at offset 60
+		flags := binary.LittleEndian.Uint32(ntlm[60:64])
+		if flags&0x02000000 != 0 { // NTLMSSP_NEGOTIATE_VERSION
+			maxEnd = 72 // Version is 8 bytes at offset 64
+		}
+
+		// Security buffers are at specific offsets
+		buffers := []int{12, 20, 28, 36, 44, 52} // LM, NT, Domain, User, Workstation, EncryptedRandomSessionKey
+		for _, bufOffset := range buffers {
+			if bufOffset+8 <= len(ntlm) {
+				bufLen := int(binary.LittleEndian.Uint16(ntlm[bufOffset : bufOffset+2]))
+				bufOff := int(binary.LittleEndian.Uint32(ntlm[bufOffset+4 : bufOffset+8]))
+				if bufOff > 0 && bufLen > 0 {
+					end := bufOff + bufLen
+					if end > maxEnd {
+						maxEnd = end
+					}
+				}
+			}
+		}
+		return maxEnd
+	}
+
+	return len(ntlm)
 }
 
 // WrapNTLMInSPNEGO wraps an NTLM message in SPNEGO

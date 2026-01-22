@@ -123,33 +123,9 @@ func wrapNTLMInSPNEGO(ntlmMsg []byte, isChallenge bool) []byte {
 }
 
 // unwrapSPNEGO extracts NTLM message from SPNEGO wrapper
+// This is a local wrapper around the exported UnwrapSPNEGO in helpers.go
 func unwrapSPNEGO(data []byte) ([]byte, error) {
-	// Check for empty blob
-	if len(data) == 0 {
-		return nil, fmt.Errorf("empty SPNEGO blob")
-	}
-
-	// First check if it's already raw NTLM (starts with NTLMSSP)
-	ntlmSig := []byte("NTLMSSP\x00")
-	if len(data) >= 8 && bytes.Equal(data[0:8], ntlmSig) {
-		return data, nil
-	}
-
-	// Try to find NTLMSSP signature in SPNEGO wrapper
-	idx := bytes.Index(data, ntlmSig)
-	if idx != -1 {
-		return data[idx:], nil
-	}
-
-	// If not found, it might be Kerberos or other mechanism
-	// Check for SPNEGO NegTokenInit (0x60) or NegTokenTarg (0xa1)
-	if data[0] == 0x60 || data[0] == 0xa0 || data[0] == 0xa1 {
-		// This is likely SPNEGO but not NTLM - could be Kerberos
-		// For hash capture, we need NTLM, so return error
-		return nil, fmt.Errorf("SPNEGO contains non-NTLM mechanism (possibly Kerberos)")
-	}
-
-	return nil, fmt.Errorf("NTLM message not found in SPNEGO blob (len=%d, first byte=0x%02x)", len(data), data[0])
+	return UnwrapSPNEGO(data)
 }
 
 // encodeLength encodes a length in DER format
