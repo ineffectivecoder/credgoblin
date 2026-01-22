@@ -466,16 +466,18 @@ func (c *ADCSClient) PrepareCSR(privateKey *rsa.PrivateKey, subjectCN string) er
 	csrBase64 := base64.StdEncoding.EncodeToString(csrDER)
 
 	// Build form data for certfnsh.asp
-	formData := url.Values{
-		"Mode":             {"newreq"},
-		"CertRequest":      {csrBase64},
-		"CertAttrib":       {"CertificateTemplate:" + c.templateName},
-		"TargetStoreFlags": {"0"},
-		"SaveCert":         {"yes"},
-	}
+	// CRITICAL: We must NOT use url.Values.Encode() here because it URL-encodes
+	// the colon in "CertificateTemplate:" to "%3A", which ADCS rejects.
+	// ntlmrelayx manually builds this string and only encodes the CSR.
+	// We need to encode the CSR the same way: replace + with %2b, spaces with +
+	csrEncoded := strings.ReplaceAll(csrBase64, "+", "%2b")
+	csrEncoded = strings.ReplaceAll(csrEncoded, " ", "+")
 
-	// Store the CSR data for use during auth
-	c.csrData = formData.Encode()
+	certAttrib := "CertificateTemplate:" + c.templateName
+
+	c.csrData = fmt.Sprintf("Mode=newreq&CertRequest=%s&CertAttrib=%s&TargetStoreFlags=0&SaveCert=yes&ThumbPrint=",
+		csrEncoded, certAttrib)
+
 	c.logger.Debug(fmt.Sprintf("CSR prepared (%d bytes)", len(c.csrData)))
 
 	return nil
